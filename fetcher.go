@@ -13,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strconv"
+	"github.com/pkg/errors"
 )
 
 type blob struct {
@@ -40,15 +41,15 @@ var (
 	ErrInvalidPassword = fmt.Errorf("invalid username or password")
 )
 
-func login(username, password string) (*session, error) {
+func login(username, password string, twoFa int) (*session, error) {
 	iterationCount, err := requestIterationCount(username)
 	if err != nil {
 		return nil, err
 	}
-	return make_session(username, password, iterationCount)
+	return make_session(username, password, iterationCount, twoFa)
 }
 
-func make_session(username, password string, iterationCount int) (*session, error) {
+func make_session(username, password string, iterationCount, twoFa int) (*session, error) {
 	cookieJar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
@@ -56,19 +57,24 @@ func make_session(username, password string, iterationCount int) (*session, erro
 	client := &http.Client{
 		Jar: cookieJar,
 	}
-	res, err := client.PostForm(
-		buildLastPassURL("login.php").String(),
-		url.Values{
-			"method":     []string{"mobile"},
-			"web":        []string{"1"},
-			"xml":        []string{"1"},
-			"username":   []string{username},
-			"hash":       []string{string(makeHash(username, password, iterationCount))},
-			"iterations": []string{fmt.Sprint(iterationCount)},
-		})
-	if err != nil {
-		return nil, err
+
+	vals := url.Values{
+		"method":     []string{"mobile"},
+		"web":        []string{"1"},
+		"xml":        []string{"1"},
+		"username":   []string{username},
+		"hash":       []string{string(makeHash(username, password, iterationCount))},
+		"iterations": []string{fmt.Sprint(iterationCount)},
 	}
+	if twoFa != 0 {
+		vals.Set("otp", fmt.Sprintf("%d", twoFa))
+	}
+
+	res, err := client.PostForm(buildLastPassURL("login.php").String(), vals)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to reach LastPass servers")
+	}
+
 	defer res.Body.Close()
 	var response struct {
 		SessionId string `xml:"sessionid,attr"`
@@ -126,8 +132,6 @@ func post(postUrl *url.URL, s *session, values *url.Values) (string, error) {
 	}
 
 	values.Set("token", string(s.token))
-	// TODO fix encoding b64
-	// 2017/10/09 11:46:30 <xmlresponse><result action="added" aid="2215972459054203220" urid="0" msg="accountadded" acctname1="" acctname2="" acctname3="" acctname4="" acctname5="" acctname6="" grouping="!dBYwP0uxf3HfGMqnRoWcMQ==|SWtDmymO8K7rB8wJWAUVoQ==" count="0" lasttouch="0000-00-00 00:00:00" editlink="" url="687474703a2f2f66616365626f6f6b2e636f6d" fav="0" launchjs="" deleted="0" remoteshare="0" username="IbMaWDJ4UpzVaOACQYsaVZ8B3U4TsvwBmwUKg1Ok0Q6eAAAAAAAAAA==" localupdate="1" accts_version="36" pwprotect="0" submit_id="" captcha_id="" custom_js="" ></result></xmlresponse>
 	client := &http.Client{
 		Jar: s.cookieJar,
 	}
