@@ -80,6 +80,7 @@ func TestCRUD(t *testing.T) {
 
 func TestIncorrectGoogleAuthCode(t *testing.T) {
 	if os.Getenv("MOCK_LP") != "" {
+		t.Logf("running %s in mock mode", t.Name())
 		httpmock.Activate()
 		defer httpmock.DeactivateAndReset()
 
@@ -95,6 +96,7 @@ func TestIncorrectGoogleAuthCode(t *testing.T) {
 
 func TestNoGoogleAuthCodeGiven(t *testing.T) {
 	if os.Getenv("MOCK_LP") != "" {
+		t.Logf("running %s in mock mode", t.Name())
 		httpmock.Activate()
 		defer httpmock.DeactivateAndReset()
 
@@ -110,6 +112,7 @@ func TestNoGoogleAuthCodeGiven(t *testing.T) {
 func TestInvalidYubiKey(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
+	t.Logf("running %s in mock mode", t.Name())
 
 	data := `<response><error message="blah blah" cause="yubikeyrestricted" allowmultifactortrust="true" tempuid="160828192" trustexpired="0" trustlabel="" hidedisable="false"  /></response>`
 	httpmock.RegisterResponder("POST", buildLastPassURL(iterationsPage).String(), httpmock.NewStringResponder(200, "5461"))
