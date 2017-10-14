@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [1.2.0] MM-DD-YYYY
+## [Unreleased] MM-DD-YYYY
+
+## [1.2.0] 10-14-2017
 ### Added
 - Mutlifactor Authentication
 
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 [1.0.0]: https://github.com/while-loop/lastpass-go/releases/tag/v1.0.0
 [1.1.0]: https://github.com/while-loop/lastpass-go/compare/v1.0.0...v1.1.0
-[Unreleased]: https://github.com/while-loop/lastpass-go/compare/v1.1.0...master
+[1.2.0]: https://github.com/while-loop/lastpass-go/compare/v1.1.0...v1.2.0
+[Unreleased]: https://github.com/while-loop/lastpass-go/compare/v1.2.0...master
 
 [comment]: # (Added, Changed, Removed)
