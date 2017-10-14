@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"github.com/pkg/errors"
+	"bytes"
 )
 
 type blob struct {
@@ -29,34 +30,34 @@ type session struct {
 	key               []byte
 }
 
-func buildLastPassURL(path string) *url.URL {
-	return &url.URL{
-		Scheme: "https",
-		Host:   "lastpass.com",
-		Path:   path,
-	}
-}
+const (
+	loginPage = "login.php"
+	iterationsPage = "iterations.php"
+	getAccountsPage = "getaccts.php"
 
-var (
-	ErrInvalidPassword = fmt.Errorf("invalid username or password")
 )
 
-func login(username, password string, twoFa int) (*session, error) {
+var (
+	ErrInvalidPassword       = fmt.Errorf("invalid password")
+	ErrInvalidEmail          = fmt.Errorf("invalid username or password")
+	ErrInvalidGoogleAuthCode = fmt.Errorf("googleauthfailed")
+	ErrInvalidYubiKey        = fmt.Errorf("yubikeyrestricted")
+)
+
+func login(username, password string, multiFactor string) (*session, error) {
 	iterationCount, err := requestIterationCount(username)
 	if err != nil {
 		return nil, err
 	}
-	return make_session(username, password, iterationCount, twoFa)
+	return make_session(username, password, iterationCount, multiFactor)
 }
 
-func make_session(username, password string, iterationCount, twoFa int) (*session, error) {
+func make_session(username, password string, iterationCount int, multiFactor string) (*session, error) {
 	cookieJar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{
-		Jar: cookieJar,
-	}
+	client := newClient(cookieJar)
 
 	vals := url.Values{
 		"method":     []string{"mobile"},
@@ -66,11 +67,11 @@ func make_session(username, password string, iterationCount, twoFa int) (*sessio
 		"hash":       []string{string(makeHash(username, password, iterationCount))},
 		"iterations": []string{fmt.Sprint(iterationCount)},
 	}
-	if twoFa != 0 {
-		vals.Set("otp", fmt.Sprintf("%d", twoFa))
+	if multiFactor != "" {
+		vals.Set("otp", multiFactor)
 	}
 
-	res, err := client.PostForm(buildLastPassURL("login.php").String(), vals)
+	res, err := client.PostForm(buildLastPassURL(loginPage).String(), vals)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to reach LastPass servers")
 	}
@@ -79,10 +80,41 @@ func make_session(username, password string, iterationCount, twoFa int) (*sessio
 	var response struct {
 		SessionId string `xml:"sessionid,attr"`
 		Token     string `xml:"token,attr"`
+		ErrResp *struct {
+			AttrAllowmultifactortrust string `xml:" allowmultifactortrust,attr"  json:",omitempty"`
+			AttrCause                 string `xml:" cause,attr"  json:",omitempty"`
+			AttrHidedisable           string `xml:" hidedisable,attr"  json:",omitempty"`
+			AttrMessage               string `xml:" message,attr"  json:",omitempty"`
+			AttrTempuid               string `xml:" tempuid,attr"  json:",omitempty"`
+			AttrTrustexpired          string `xml:" trustexpired,attr"  json:",omitempty"`
+			AttrTrustlabel            string `xml:" trustlabel,attr"  json:",omitempty"`
+		} `xml:" error,omitempty" json:"error,omitempty"`
 	}
-	err = xml.NewDecoder(res.Body).Decode(&response)
+
+	// read to bytes for debugging
+	b, err := ioutil.ReadAll(res.Body)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	err = xml.NewDecoder(bytes.NewReader(b)).Decode(&response)
 	if err != nil {
 		return nil, err
+	}
+
+	if response.ErrResp != nil {
+		switch response.ErrResp.AttrCause {
+		case "googleauthfailed", "googleauthrequired":
+			return nil, ErrInvalidGoogleAuthCode
+		case "unknownpassword":
+			return nil, ErrInvalidPassword
+		case "yubikeyrestricted":
+			return nil, ErrInvalidYubiKey
+		case "unknownemail":
+			return nil, ErrInvalidEmail
+		default:
+			return nil, fmt.Errorf("%s", response.ErrResp.AttrMessage)
+		}
 	}
 
 	key := makeKey(username, password, iterationCount)
@@ -95,30 +127,32 @@ func make_session(username, password string, iterationCount, twoFa int) (*sessio
 }
 
 func fetch(s *session) (*blob, error) {
-	u := buildLastPassURL("getaccts.php")
+	u := buildLastPassURL(getAccountsPage)
 	u.RawQuery = (&url.Values{
 		"mobile":    []string{"1"},
 		"b64":       []string{"1"},
 		"hash":      []string{"0.0"},
 		"PHPSESSID": []string{s.id},
 	}).Encode()
-	client := &http.Client{
-		Jar: s.cookieJar,
-	}
+
+	client := newClient(s.cookieJar)
+
 	res, err := client.Get(u.String())
 	if err != nil {
 		return nil, err
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode == http.StatusForbidden {
-		return nil, ErrInvalidPassword
-	}
-
 	b, err := ioutil.ReadAll(res.Body)
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
+
+	//fmt.Println(string(b))
+	if res.StatusCode == http.StatusForbidden {
+		return nil, ErrInvalidPassword
+	}
+
 	b, err = base64.StdEncoding.DecodeString(string(b))
 	if err != nil {
 		return nil, err
@@ -132,9 +166,7 @@ func post(postUrl *url.URL, s *session, values *url.Values) (string, error) {
 	}
 
 	values.Set("token", string(s.token))
-	client := &http.Client{
-		Jar: s.cookieJar,
-	}
+	client := newClient(s.cookieJar)
 
 	res, err := client.PostForm(postUrl.String(), *values)
 	if err != nil {
@@ -154,19 +186,9 @@ func post(postUrl *url.URL, s *session, values *url.Values) (string, error) {
 	return string(b), nil
 }
 
-func encodeValues(values *url.Values) *url.Values {
-	newValues := &url.Values{}
-	for key, val := range *values {
-		for _, v := range val {
-			newValues.Add(key, base64.StdEncoding.EncodeToString(s2b(v)))
-		}
-	}
-	return newValues
-}
-
 func requestIterationCount(username string) (int, error) {
 	res, err := http.DefaultClient.PostForm(
-		buildLastPassURL("iterations.php").String(),
+		buildLastPassURL(iterationsPage).String(),
 		url.Values{
 			"email": []string{username},
 		})
@@ -200,4 +222,19 @@ func makeHash(username, password string, iterationCount int) []byte {
 		return lcrypt.EncodeHex(b[:])
 	}
 	return lcrypt.EncodeHex(pbkdf2.Key([]byte(key), []byte(password), 1, 32, sha256.New))
+}
+
+// used to mock lastpass responses
+var newClient = func(jar http.CookieJar) *http.Client {
+	return &http.Client{
+		Jar: jar,
+	}
+}
+
+func buildLastPassURL(path string) *url.URL {
+	return &url.URL{
+		Scheme: "https",
+		Host:   "lastpass.com",
+		Path:   path,
+	}
 }

@@ -27,7 +27,7 @@ func New(email, password string, opts ...ConfigFunc) (*Vault, error) {
 		opt(configOpts)
 	}
 
-	session, err := login(email, password, configOpts.twoFa)
+	session, err := login(email, password, configOpts.multiFactor)
 	if err != nil {
 		return nil, err
 	}

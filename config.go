@@ -6,15 +6,14 @@ type ConfigFunc func(opts *ConfigOptions)
 
 // ConfigOptions are config options that
 // set behaviours in Vault.
-// Current supported configs is 2FA.
+// Current supported configs is multi-factor auth.
 type ConfigOptions struct {
-	twoFa int
+	multiFactor string
 }
 
-// With2Factor adds two factor auth to your
-// vault.
-func With2Factor(pin int) ConfigFunc {
+// WithMultiFactor adds multi-factor auth to your vault.
+func WithMultiFactor(code string) ConfigFunc {
 	return func(opts *ConfigOptions) {
-		opts.twoFa = pin
+		opts.multiFactor = code
 	}
 }

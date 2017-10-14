@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [Unreleased] MM-DD-YYYY
+## [1.2.0] MM-DD-YYYY
+### Added
+- Mutlifactor Authentication
 
 ## [1.1.0] 10-11-2017
 ### Changed
